@@ -2,20 +2,26 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
+import type { Map as LeafletMap, LatLngBounds, Circle, Polyline, Marker, LatLng, LatLngExpression } from 'leaflet';
 import type { Coordinate } from '../types/coordinates';
 import { createMarkerIcon, createCurrentLocationIcon } from '../utils/markerIcons';
 import { calculatePath } from '../utils/pathCalculator';
 import { detectSevereClusters } from '../utils/clusterDetector';
 
+type MapInstance = LeafletMap;
+type CircleInstance = Circle;
+type PolylineInstance = Polyline;
+type MarkerInstance = Marker;
+
 export default function MapPage() {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
+  const mapInstanceRef = useRef<MapInstance | null>(null);
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const markersRef = useRef<Map<string, any>>(new Map());
+  const markersRef = useRef<Map<string, MarkerInstance>>(new Map());
   const [coordinates, setCoordinates] = useState<Coordinate[]>([]);
-  const pathRef = useRef<any>(null);
+  const pathRef = useRef<PolylineInstance | null>(null);
   const currentLocationRef = useRef<[number, number]>([0, 0]);
 
   const getPriorityColor = (priority: string) => {
@@ -27,7 +33,7 @@ export default function MapPage() {
     }
   };
 
-  const createCustomMarker = (coordinate: Coordinate) => {
+  const createCustomMarker = useCallback((coordinate: Coordinate): MarkerInstance | null => {
     if (!window.L) return null;
     
     const color = getPriorityColor(coordinate.priority);
@@ -39,8 +45,8 @@ export default function MapPage() {
         iconSize: [30, 42],
         iconAnchor: [15, 42]
       })
-    });
-  };
+    }) as MarkerInstance;
+  }, []);
 
   const clearExistingMarkers = () => {
     markersRef.current.forEach(marker => {
@@ -50,7 +56,8 @@ export default function MapPage() {
   };
 
   const drawPath = useCallback((coords: Coordinate[]) => {
-    if (!mapInstanceRef.current || coords.length === 0) return;
+    const mapInstance = mapInstanceRef.current;
+    if (!mapInstance || coords.length === 0) return;
 
     // Remove existing path
     if (pathRef.current) {
@@ -68,13 +75,13 @@ export default function MapPage() {
 
     // Draw new path with thicker black line
     pathRef.current = window.L.polyline(pathCoords, {
-      color: '#000000', // Black color
-      weight: 4,        // Thicker line
-      opacity: 0.8,     // Slightly transparent
-      dashArray: '15, 10', // Larger dash pattern
-      lineCap: 'round', // Rounded line ends
-      lineJoin: 'round' // Rounded line joins
-    }).addTo(mapInstanceRef.current);
+      color: '#000000',
+      weight: 4,
+      opacity: 0.8,
+      dashArray: '15, 10',
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(mapInstance) as PolylineInstance;
   }, []);
 
   const notifyCluster = async (cluster: any) => {
@@ -102,12 +109,14 @@ export default function MapPage() {
   };
 
   const addMarkersToMap = useCallback((coords: Coordinate[]) => {
-    if (!mapInstanceRef.current) {
-      console.error('Map instance not initialized');
-      return;
-    }
+    const mapInstance = mapInstanceRef.current;
+    if (!mapInstance) return;
     
     clearExistingMarkers();
+    
+    // Create bounds object with initial coordinates
+    const initialLatLng: LatLngExpression = [0, 0];
+    const bounds = new window.L.LatLngBounds(initialLatLng, initialLatLng);
     
     // Detect severe clusters
     const clusters = detectSevereClusters(coords);
@@ -123,46 +132,61 @@ export default function MapPage() {
         fillColor: '#f03',
         fillOpacity: 0.3,
         radius: 50 // meters
-      }).addTo(mapInstanceRef.current);
+      }).addTo(mapInstance);
       
       clusterCircle.bindPopup(`Severe Cluster: ${cluster.count} cases`);
     });
 
-    // Create bounds object using latLngBounds function instead of constructor
-    const bounds = window.L.latLngBounds();
-    
     coords.forEach((coord) => {
       try {
         const marker = createCustomMarker(coord);
         if (marker) {
-          marker.addTo(mapInstanceRef.current)
+          marker.addTo(mapInstance)
             .bindPopup(`Priority: ${coord.priority}`);
           const key = `${coord.latitude}-${coord.longitude}`;
           markersRef.current.set(key, marker);
           
-          // Extend bounds to include this marker
-          bounds.extend([coord.latitude, coord.longitude]);
+          // Create LatLng object for bounds
+          const latLng = new window.L.LatLng(coord.latitude, coord.longitude);
+          bounds.extend(latLng);
         }
       } catch (err) {
         console.error('Error adding marker:', err);
       }
     });
 
-    // Fit bounds if we have markers
+    // Modified bounds fitting with much tighter zoom
     if (coords.length > 0) {
-      mapInstanceRef.current.fitBounds(bounds, {
-        padding: [50, 50],
-        maxZoom: 15
+      mapInstance.fitBounds(bounds, {
+        padding: [20, 20], // Reduced padding
+        maxZoom: 18,      // Increased max zoom
+        animate: true     // Smooth animation
       });
+      
+      // Force zoom level after bounds fit
+      setTimeout(() => {
+        if (mapInstance) {
+          mapInstance.setZoom(19);
+        }
+      }, 1000);
     }
 
-    // Draw path after adding markers
     drawPath(coords);
-  }, [drawPath]);
+  }, [drawPath, createCustomMarker]);
 
-  const fetchCoordinates = async () => {
+  // Memoize the coordinates comparison function
+  const areCoordinatesEqual = useCallback((prev: Coordinate[], next: Coordinate[]) => {
+    if (prev.length !== next.length) return false;
+    return prev.every((coord, index) => (
+      coord.latitude === next[index].latitude &&
+      coord.longitude === next[index].longitude &&
+      coord.priority === next[index].priority
+    ));
+  }, []);
+
+  // Memoize fetch coordinates to prevent recreating on every render
+  const fetchCoordinates = useCallback(async () => {
     try {
-      console.log('Fetching coordinates...'); // Debug log
       const response = await fetch('/api/coordinates');
       
       if (!response.ok) {
@@ -170,46 +194,36 @@ export default function MapPage() {
       }
       
       const data = await response.json();
-      console.log('Received data:', data); // Debug log
       
       if (!data || !data.success || !Array.isArray(data.data)) {
         throw new Error('Invalid data format received');
       }
       
-      setCoordinates(data.data);
-      addMarkersToMap(data.data);
+      // Only update if coordinates have changed
+      if (!areCoordinatesEqual(coordinates, data.data)) {
+        setCoordinates(data.data);
+        addMarkersToMap(data.data);
+      }
       return data.data;
     } catch (error) {
       console.error('Failed to fetch coordinates:', error);
       setError('Failed to load coordinate data');
       return [];
     }
-  };
+  }, [coordinates, addMarkersToMap, areCoordinatesEqual]);
 
-  // Polling mechanism for updates
+  // Polling mechanism with optimized updates
   useEffect(() => {
     let mounted = true;
-    const pollInterval = 5000; // 5 seconds
+    const pollInterval = 5000;
 
     const pollForUpdates = async () => {
       if (!mounted) return;
-      
-      try {
-        const response = await fetch('/api/coordinates');
-        const data = await response.json();
-        
-        if (data.success && Array.isArray(data.data)) {
-          // Check if we have new coordinates
-          if (JSON.stringify(data.data) !== JSON.stringify(coordinates)) {
-            console.log('New coordinates detected, updating map...');
-            setCoordinates(data.data);
-            addMarkersToMap(data.data);
-          }
-        }
-      } catch (error) {
-        console.error('Polling error:', error);
-      }
+      await fetchCoordinates();
     };
+
+    // Initial fetch
+    pollForUpdates();
 
     const intervalId = setInterval(pollForUpdates, pollInterval);
 
@@ -217,7 +231,7 @@ export default function MapPage() {
       mounted = false;
       clearInterval(intervalId);
     };
-  }, [coordinates, addMarkersToMap]);
+  }, [fetchCoordinates]); // Only depend on fetchCoordinates
 
   useEffect(() => {
     let mounted = true;
@@ -246,8 +260,25 @@ export default function MapPage() {
           mapInstanceRef.current = new window.MapmyIndia.Map(mapRef.current, {
             center: [currentLat, currentLng],
             zoomControl: true,
-            zoom: 12, // Start with a wider view
+            zoom: 19,        // Set very high initial zoom
+            minZoom: 15,     // Prevent zooming out too far
+            maxZoom: 20,     // Allow maximum zoom in
             hybrid: false
+          }) as MapInstance;
+
+          // Force zoom level after initialization
+          setTimeout(() => {
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.setZoom(19);
+            }
+          }, 500);
+
+          // Add zoom change handler
+          mapInstanceRef.current.on('zoomend', () => {
+            const currentZoom = mapInstanceRef.current?.getZoom();
+            if (currentZoom && currentZoom < 17) {
+              mapInstanceRef.current?.setZoom(19);
+            }
           });
 
           console.log('Map initialized'); // Debug log
@@ -317,7 +348,7 @@ export default function MapPage() {
         mapInstanceRef.current = null;
       }
     };
-  }, [searchParams, addMarkersToMap]);
+  }, [searchParams, addMarkersToMap, fetchCoordinates]); // Remove isLoading dependency
 
   return (
     <div className="relative w-full h-screen">

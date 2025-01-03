@@ -13,8 +13,6 @@ const getDistance = (p1: Coordinate, p2: Coordinate): number => {
 
 // Sort coordinates by priority and calculate path
 export const calculatePath = (coordinates: Coordinate[], currentLocation: [number, number]): Coordinate[] => {
-  const priorityOrder = { 'severe': 0, 'intermediate': 1, 'normal': 2 } as const;
-  
   // Group coordinates by priority
   const grouped = coordinates.reduce((acc, coord) => {
     const priority = coord.priority;
@@ -24,7 +22,7 @@ export const calculatePath = (coordinates: Coordinate[], currentLocation: [numbe
   }, {} as Record<PriorityLevel, Coordinate[]>);
 
   // For each priority group, find nearest neighbor path
-  let result: Coordinate[] = [];
+  const result: Coordinate[] = [];
   const startPoint: Coordinate = {
     latitude: currentLocation[0],
     longitude: currentLocation[1],

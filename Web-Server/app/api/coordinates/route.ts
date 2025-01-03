@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import type { CoordinatesPayload, Coordinate } from '@/app/types/coordinates';
+import type { Coordinate } from '@/app/types/coordinates';
 
 // Store coordinates in memory (replace with database in production)
 let allCoordinates: Coordinate[] = [
@@ -32,6 +32,7 @@ export async function GET() {
       }
     );
   } catch (error) {
+    console.error('Error fetching coordinates:', error);
     return new NextResponse(
       JSON.stringify({ 
         success: false, 
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
     }
 
     // Validate and add new coordinates
-    const newCoords = body.coordinates.filter((coord: any) => 
+    const newCoords = body.coordinates.filter((coord: Partial<Coordinate>) => 
       typeof coord.latitude === 'number' &&
       typeof coord.longitude === 'number' &&
       typeof coord.priority === 'string'
