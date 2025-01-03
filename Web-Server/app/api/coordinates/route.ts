@@ -1,24 +1,25 @@
 import { NextResponse } from 'next/server';
-import type { CoordinatesPayload } from '@/app/types/coordinates';
-// Mock data with more test points spread around Delhi NCR
-const mockData: CoordinatesPayload = {
-  coordinates: [
-    { latitude: 28.6139, longitude: 77.2090, priority: 'severe' },     // New Delhi
-    { latitude: 28.4595, longitude: 77.0266, priority: 'normal' },     // Gurgaon
-    { latitude: 28.5355, longitude: 77.3910, priority: 'intermediate' },// Noida
-    { latitude: 28.6692, longitude: 77.4538, priority: 'severe' },     // Ghaziabad
-    { latitude: 28.4089, longitude: 77.3178, priority: 'normal' },     // Faridabad
-    { latitude: 28.7041, longitude: 77.1025, priority: 'intermediate' },// Delhi University
-    { latitude: 28.5503, longitude: 77.2699, priority: 'severe' },     // South Delhi
-    { latitude: 28.6304, longitude: 77.2177, priority: 'normal' }      // Central Delhi
-  ]
-};
+import type { CoordinatesPayload, Coordinate } from '@/app/types/coordinates';
+
+// Store coordinates in memory (replace with database in production)
+let allCoordinates: Coordinate[] = [
+  { latitude: 28.6139, longitude: 77.2090, priority: 'severe' },     // New Delhi
+  { latitude: 28.4595, longitude: 77.0266, priority: 'normal' },     // Gurgaon
+  { latitude: 28.5355, longitude: 77.3910, priority: 'intermediate' },// Noida
+  { latitude: 28.6692, longitude: 77.4538, priority: 'severe' },     // Ghaziabad
+  { latitude: 28.4089, longitude: 77.3178, priority: 'normal' },     // Faridabad
+  { latitude: 28.7041, longitude: 77.1025, priority: 'intermediate' },// Delhi University
+  { latitude: 28.5503, longitude: 77.2699, priority: 'severe' },     // South Delhi
+  { latitude: 28.6304, longitude: 77.2177, priority: 'normal' }      // Central Delhi
+];
+
 export async function GET() {
   try {
+    console.log('Sending coordinates:', allCoordinates); // Debug log
     return new NextResponse(
       JSON.stringify({ 
         success: true, 
-        data: mockData.coordinates 
+        data: allCoordinates 
       }), 
       {
         status: 200,
@@ -45,17 +46,33 @@ export async function GET() {
     );
   }
 }
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     
-    if (!body || !body.coordinates || !Array.isArray(body.coordinates)) {
+    if (!body?.coordinates?.length) {
       throw new Error('Invalid payload format');
     }
+
+    // Validate and add new coordinates
+    const newCoords = body.coordinates.filter((coord: any) => 
+      typeof coord.latitude === 'number' &&
+      typeof coord.longitude === 'number' &&
+      typeof coord.priority === 'string'
+    );
+
+    if (newCoords.length === 0) {
+      throw new Error('No valid coordinates provided');
+    }
+
+    // Add new coordinates to the existing ones
+    allCoordinates = [...allCoordinates, ...newCoords];
+
     return new NextResponse(
       JSON.stringify({ 
         success: true, 
-        data: body.coordinates 
+        data: allCoordinates // Return all coordinates
       }), 
       {
         status: 200,
