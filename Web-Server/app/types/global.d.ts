@@ -1,17 +1,16 @@
+import type { GalliMapOptions, GalliMarkerOptions, GalliPolylineOptions, GalliCircleOptions } from './map';
+
 declare global {
   interface Window {
-    MapmyIndia: {
-      Map: new (element: HTMLElement | string, options: {
-        center: [number, number];
-        zoomControl: boolean;
-        zoom: number;
-        hybrid: boolean;
-        search?: boolean;
-        minZoom?: number;  // Add minZoom option
-        maxZoom?: number;  // Add maxZoom option
-      }) => any;
+    Galli?: {
+      Map: new (options: GalliMapOptions) => any;
+      Marker: new (options: GalliMarkerOptions) => any;
+      Icon: any;
+      Polyline: new (options: GalliPolylineOptions) => any;
+      Circle: new (options: GalliCircleOptions) => any;
+      LatLng: new (lat: number, lng: number) => any;
+      LatLngBounds: new (corner1: [number, number], corner2: [number, number]) => any;
     };
-    L: typeof import('leaflet');
   }
 }
 

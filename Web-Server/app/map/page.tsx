@@ -2,16 +2,32 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import type { Map as LeafletMap, LatLngBounds, Circle, Polyline, Marker, LatLng, LatLngExpression } from 'leaflet';
+import GalliMapLoader from '../components/GalliMapLoader';
+// Remove Leaflet imports
 import type { Coordinate } from '../types/coordinates';
 import { createMarkerIcon, createCurrentLocationIcon } from '../utils/markerIcons';
 import { calculatePath } from '../utils/pathCalculator';
 import { detectSevereClusters } from '../utils/clusterDetector';
+import type { GalliMapOptions, GalliMarkerOptions, GalliPolylineOptions, GalliCircleOptions } from '../types/map';
 
-type MapInstance = LeafletMap;
-type CircleInstance = Circle;
-type PolylineInstance = Polyline;
-type MarkerInstance = Marker;
+const ACCESS_TOKEN = 'your_galli_access_token';
+
+// Update type definitions for Galli
+type MapInstance = any;
+type MarkerInstance = any;
+type PolylineInstance = any;
+
+// Add type guard function
+const isGalliAvailable = (): boolean => {
+  return typeof window !== 'undefined' && window.Galli !== undefined;
+};
+
+const getGalli = () => {
+  if (!window.Galli) {
+    throw new Error('Galli Maps not loaded');
+  }
+  return window.Galli;
+};
 
 export default function MapPage() {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -23,6 +39,7 @@ export default function MapPage() {
   const [coordinates, setCoordinates] = useState<Coordinate[]>([]);
   const pathRef = useRef<PolylineInstance | null>(null);
   const currentLocationRef = useRef<[number, number]>([0, 0]);
+  const mounted = useRef(true);
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -33,19 +50,16 @@ export default function MapPage() {
     }
   };
 
-  const createCustomMarker = useCallback((coordinate: Coordinate): MarkerInstance | null => {
-    if (!window.L) return null;
+  // Update marker creation with type guard
+  const createCustomMarker = useCallback((coordinate: Coordinate) => {
+    if (!isGalliAvailable()) return null;
     
     const color = getPriorityColor(coordinate.priority);
     
-    return new window.L.Marker([coordinate.latitude, coordinate.longitude], {
-      icon: window.L.divIcon({
-        className: 'custom-marker',
-        html: createMarkerIcon(color),
-        iconSize: [30, 42],
-        iconAnchor: [15, 42]
-      })
-    }) as MarkerInstance;
+    return window.Galli?.Marker && new window.Galli.Marker({
+      coordinates: [coordinate.longitude, coordinate.latitude],
+      element: createMarkerIcon(color)
+    });
   }, []);
 
   const clearExistingMarkers = () => {
@@ -55,33 +69,65 @@ export default function MapPage() {
     markersRef.current.clear();
   };
 
-  const drawPath = useCallback((coords: Coordinate[]) => {
-    const mapInstance = mapInstanceRef.current;
-    if (!mapInstance || coords.length === 0) return;
+  const getRoutePath = async (start: [number, number], end: [number, number]): Promise<[number, number][]> => {
+    try {
+      // Using Galli's routing API
+      const response = await fetch(
+        `https://routing.gallimap.com/route/v1/driving/` +
+        `${start[1]},${start[0]};${end[1]},${end[0]}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${ACCESS_TOKEN}`
+          }
+        }
+      );
 
-    // Remove existing path
-    if (pathRef.current) {
-      pathRef.current.remove();
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates) {
+        // Convert coordinates from [longitude, latitude] to [latitude, longitude]
+        return data.routes[0].geometry.coordinates.map(
+          (coord: [number, number]) => [coord[1], coord[0]]
+        );
+      }
+      
+      // If no valid route found, fall back to direct line
+      return [start, end];
+    } catch (error) {
+      console.error('Route calculation failed:', error);
+      // Fallback to direct line if API fails
+      return [start, end];
     }
+  };
 
-    // Calculate optimal path
-    const orderedCoords = calculatePath(coords, currentLocationRef.current);
+  // Update other Galli usage with type guard
+  const drawPath = useCallback(async (coords: Coordinate[]) => {
+    const mapInstance = mapInstanceRef.current;
+    if (!mapInstance || coords.length === 0 || !isGalliAvailable()) return;
 
-    // Create path coordinates including current location
-    const pathCoords = [
-      currentLocationRef.current,
-      ...orderedCoords.map(coord => [coord.latitude, coord.longitude] as [number, number])
-    ];
+    try {
+      const Galli = getGalli();
+      if (pathRef.current) {
+        pathRef.current.remove();
+      }
 
-    // Draw new path with thicker black line
-    pathRef.current = window.L.polyline(pathCoords, {
-      color: '#000000',
-      weight: 4,
-      opacity: 0.8,
-      dashArray: '15, 10',
-      lineCap: 'round',
-      lineJoin: 'round'
-    }).addTo(mapInstance) as PolylineInstance;
+      const orderedCoords = calculatePath(coords, currentLocationRef.current);
+      const pathCoords = orderedCoords.map(coord => [coord.longitude, coord.latitude]);
+
+      pathRef.current = new Galli.Polyline({
+        coordinates: pathCoords,
+        color: '#000000',
+        width: 4,
+        opacity: 0.8,
+        dashArray: [15, 10]
+      } as GalliPolylineOptions).addTo(mapInstance);
+    } catch (error) {
+      console.error('Failed to draw path:', error);
+    }
   }, []);
 
   const notifyCluster = async (cluster: any) => {
@@ -108,70 +154,77 @@ export default function MapPage() {
     }
   };
 
+  // Update addMarkersToMap with type guard
   const addMarkersToMap = useCallback((coords: Coordinate[]) => {
     const mapInstance = mapInstanceRef.current;
-    if (!mapInstance) return;
+    if (!mapInstance || !isGalliAvailable()) return;
     
-    clearExistingMarkers();
-    
-    // Create bounds object with initial coordinates
-    const initialLatLng: LatLngExpression = [0, 0];
-    const bounds = new window.L.LatLngBounds(initialLatLng, initialLatLng);
-    
-    // Detect severe clusters
-    const clusters = detectSevereClusters(coords);
-    
-    // Notify about each cluster
-    clusters.forEach(cluster => {
-      console.log('Severe cluster detected:', cluster);
-      notifyCluster(cluster);
+    try {
+      const Galli = getGalli();
+      clearExistingMarkers();
       
-      // Add cluster visualization (optional)
-      const clusterCircle = window.L.circle([cluster.center.latitude, cluster.center.longitude], {
-        color: 'red',
-        fillColor: '#f03',
-        fillOpacity: 0.3,
-        radius: 50 // meters
-      }).addTo(mapInstance);
+      // Create bounds object with initial coordinates
+      const initialLatLng: [number, number] = [0, 0];
+      const bounds = new Galli.LatLngBounds(initialLatLng, initialLatLng);
       
-      clusterCircle.bindPopup(`Severe Cluster: ${cluster.count} cases`);
-    });
-
-    coords.forEach((coord) => {
-      try {
-        const marker = createCustomMarker(coord);
-        if (marker) {
-          marker.addTo(mapInstance)
-            .bindPopup(`Priority: ${coord.priority}`);
-          const key = `${coord.latitude}-${coord.longitude}`;
-          markersRef.current.set(key, marker);
-          
-          // Create LatLng object for bounds
-          const latLng = new window.L.LatLng(coord.latitude, coord.longitude);
-          bounds.extend(latLng);
-        }
-      } catch (err) {
-        console.error('Error adding marker:', err);
-      }
-    });
-
-    // Modified bounds fitting with much tighter zoom
-    if (coords.length > 0) {
-      mapInstance.fitBounds(bounds, {
-        padding: [20, 20], // Reduced padding
-        maxZoom: 18,      // Increased max zoom
-        animate: true     // Smooth animation
+      // Detect severe clusters
+      const clusters = detectSevereClusters(coords);
+      
+      // Notify about each cluster
+      clusters.forEach(cluster => {
+        console.log('Severe cluster detected:', cluster);
+        notifyCluster(cluster);
+        
+        // Add cluster visualization (optional)
+        const clusterCircle = new Galli.Circle({
+          center: [cluster.center.longitude, cluster.center.latitude],
+          color: 'red',
+          fillColor: '#f03',
+          fillOpacity: 0.3,
+          radius: 50 // meters
+        }).addTo(mapInstance);
+        
+        clusterCircle.bindPopup(`Severe Cluster: ${cluster.count} cases`);
       });
-      
-      // Force zoom level after bounds fit
-      setTimeout(() => {
-        if (mapInstance) {
-          mapInstance.setZoom(19);
-        }
-      }, 1000);
-    }
 
-    drawPath(coords);
+      coords.forEach((coord) => {
+        try {
+          const marker = createCustomMarker(coord);
+          if (marker) {
+            marker.addTo(mapInstance)
+              .bindPopup(`Priority: ${coord.priority}`);
+            const key = `${coord.latitude}-${coord.longitude}`;
+            markersRef.current.set(key, marker);
+            
+            // Create LatLng object for bounds
+            const latLng = new Galli.LatLng(coord.latitude, coord.longitude);
+            bounds.extend(latLng);
+          }
+        } catch (err) {
+          console.error('Error adding marker:', err);
+        }
+      });
+
+      // Modified bounds fitting with much tighter zoom
+      if (coords.length > 0) {
+        mapInstance.fitBounds(bounds, {
+          padding: [20, 20], // Reduced padding
+          maxZoom: 18,      // Increased max zoom
+          animate: true     // Smooth animation
+        });
+        
+        // Force zoom level after bounds fit
+        setTimeout(() => {
+          if (mapInstance) {
+            mapInstance.setZoom(19);
+          }
+        }, 1000);
+      }
+
+      drawPath(coords);
+    } catch (error) {
+      console.error('Failed to add markers:', error);
+    }
   }, [drawPath, createCustomMarker]);
 
   // Memoize the coordinates comparison function
@@ -233,125 +286,113 @@ export default function MapPage() {
     };
   }, [fetchCoordinates]); // Only depend on fetchCoordinates
 
-  useEffect(() => {
-    let mounted = true;
+  // Move initialize to the top of component scope
+  const initMap = useCallback(async () => {
+    if (!mapRef.current || !isGalliAvailable()) {
+      console.error('Missing required dependencies');
+      return false;
+    }
 
-    const initMap = async () => {
-      if (!mapRef.current || !window.MapmyIndia || !window.L) {
-        console.error('Missing required dependencies'); // Debug log
-        return false;
+    try {
+      const Galli = getGalli(); // Use getGalli utility to safely access Galli
+      const lat = searchParams.get('lat');
+      const lng = searchParams.get('lng');
+      
+      if (!lat || !lng) {
+        throw new Error('Location coordinates not provided');
       }
 
-      try {
-        const lat = searchParams.get('lat');
-        const lng = searchParams.get('lng');
+      const currentLat = parseFloat(lat);
+      const currentLng = parseFloat(lng);
+      
+      // Store current location
+      currentLocationRef.current = [currentLat, currentLng];
+
+      if (!mapInstanceRef.current) {
+        // Initialize Galli map
+        mapInstanceRef.current = new Galli.Map({
+          container: mapRef.current,
+          center: [currentLng, currentLat], // Note: Galli uses [lng, lat] order
+          zoom: 19,
+          minZoom: 15,
+          maxZoom: 20,
+          accessToken: ACCESS_TOKEN
+        });
+
+        // Add current location marker
+        const currentLocationMarker = new Galli.Marker({
+          coordinates: [currentLng, currentLat],
+          element: createCurrentLocationIcon()
+        });
         
-        if (!lat || !lng) {
-          throw new Error('Location coordinates not provided');
+        currentLocationMarker.addTo(mapInstanceRef.current);
+
+        // Fetch initial coordinates immediately
+        const initialCoords = await fetchCoordinates();
+        if (mounted && initialCoords.length > 0) {
+          addMarkersToMap(initialCoords);
         }
-
-        const currentLat = parseFloat(lat);
-        const currentLng = parseFloat(lng);
-        
-        // Store current location
-        currentLocationRef.current = [currentLat, currentLng];
-
-        if (!mapInstanceRef.current) {
-          mapInstanceRef.current = new window.MapmyIndia.Map(mapRef.current, {
-            center: [currentLat, currentLng],
-            zoomControl: true,
-            zoom: 19,        // Set very high initial zoom
-            minZoom: 15,     // Prevent zooming out too far
-            maxZoom: 20,     // Allow maximum zoom in
-            hybrid: false
-          }) as MapInstance;
-
-          // Force zoom level after initialization
-          setTimeout(() => {
-            if (mapInstanceRef.current) {
-              mapInstanceRef.current.setZoom(19);
-            }
-          }, 500);
-
-          // Add zoom change handler
-          mapInstanceRef.current.on('zoomend', () => {
-            const currentZoom = mapInstanceRef.current?.getZoom();
-            if (currentZoom && currentZoom < 17) {
-              mapInstanceRef.current?.setZoom(19);
-            }
-          });
-
-          console.log('Map initialized'); // Debug log
-
-          // Add current location marker with custom icon
-          const currentLocationMarker = new window.L.Marker([currentLat, currentLng], {
-            icon: window.L.divIcon({
-              className: 'current-location-marker',
-              html: createCurrentLocationIcon(),
-              iconSize: [36, 36],
-              iconAnchor: [18, 18]
-            })
-          });
-          
-          currentLocationMarker.addTo(mapInstanceRef.current);
-          currentLocationMarker.bindPopup('Your Location').openPopup();
-
-          // Fetch initial coordinates immediately
-          const initialCoords = await fetchCoordinates();
-          if (mounted && initialCoords.length > 0) {
-            addMarkersToMap(initialCoords);
-          }
-        }
-
-        if (mounted) {
-          setIsLoading(false);
-        }
-        return true;
-      } catch (err) {
-        console.error('Map initialization error:', err);
-        if (mounted) {
-          setError(err instanceof Error ? err.message : 'Failed to load map');
-          setIsLoading(false);
-        }
-        return false;
       }
-    };
 
-    // Try to initialize immediately
-    const initialize = async () => {
-      const result = await initMap();
-      if (!result) {
-        const timer = setInterval(async () => {
-          const success = await initMap();
-          if (success) {
-            clearInterval(timer);
-          }
-        }, 500);
+      if (mounted.current) {
+        setIsLoading(false);
+      }
+      return true;
+    } catch (err) {
+      console.error('Map initialization error:', err);
+      if (mounted.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load map');
+        setIsLoading(false);
+      }
+      return false;
+    }
+  }, [searchParams, fetchCoordinates, addMarkersToMap]);
 
-        // Cleanup timer after 10 seconds if map doesn't initialize
-        setTimeout(() => {
+  const initialize = useCallback(async () => {
+    const result = await initMap();
+    if (!result) {
+      const timer = setInterval(async () => {
+        const success = await initMap();
+        if (success) {
           clearInterval(timer);
-          if (mounted && isLoading) {
-            setError('Failed to load map resources');
-            setIsLoading(false);
-          }
-        }, 10000);
-      }
-    };
+        }
+      }, 500);
+
+      // Cleanup timer after 10 seconds if map doesn't initialize
+      setTimeout(() => {
+        clearInterval(timer);
+        if (isLoading) {
+          setError('Failed to load map resources');
+          setIsLoading(false);
+        }
+      }, 10000);
+    }
+  }, [initMap, isLoading]);
+
+  useEffect(() => {
+    // Set mounted.current to true at start
+    mounted.current = true;
 
     initialize();
 
     return () => {
-      mounted = false;
+      // Set mounted.current to false on cleanup
+      mounted.current = false;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
       }
     };
-  }, [searchParams, addMarkersToMap, fetchCoordinates]); // Remove isLoading dependency
+  }, [initialize]);
 
+  // Update return JSX
   return (
     <div className="relative w-full h-screen">
+      <GalliMapLoader 
+        apiKey={ACCESS_TOKEN} 
+        onLoad={initialize}
+      />
+      
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-white z-50">
           <div className="text-lg">Loading map...</div>

@@ -1,16 +1,16 @@
 import { NextResponse } from 'next/server';
 import type { Coordinate } from '@/app/types/coordinates';
 
-// Store coordinates in memory (replace with database in production)
+// Update coordinates to Nepal locations
 let allCoordinates: Coordinate[] = [
-  { latitude: 28.6139, longitude: 77.2090, priority: 'severe' },     // New Delhi
-  { latitude: 28.4595, longitude: 77.0266, priority: 'normal' },     // Gurgaon
-  { latitude: 28.5355, longitude: 77.3910, priority: 'intermediate' },// Noida
-  { latitude: 28.6692, longitude: 77.4538, priority: 'severe' },     // Ghaziabad
-  { latitude: 28.4089, longitude: 77.3178, priority: 'normal' },     // Faridabad
-  { latitude: 28.7041, longitude: 77.1025, priority: 'intermediate' },// Delhi University
-  { latitude: 28.5503, longitude: 77.2699, priority: 'severe' },     // South Delhi
-  { latitude: 28.6304, longitude: 77.2177, priority: 'normal' }      // Central Delhi
+  { latitude: 27.7172, longitude: 85.3240, priority: 'severe' },      // Kathmandu
+  { latitude: 27.6980, longitude: 85.3592, priority: 'normal' },      // Bhaktapur
+  { latitude: 27.6710, longitude: 85.4298, priority: 'intermediate' }, // Banepa
+  { latitude: 27.6866, longitude: 85.3145, priority: 'severe' },      // Patan
+  { latitude: 27.7024, longitude: 85.3119, priority: 'normal' },      // Kirtipur
+  { latitude: 27.7300, longitude: 85.3350, priority: 'intermediate' }, // Bouddha
+  { latitude: 27.6939, longitude: 85.3157, priority: 'severe' },      // Jawalakhel
+  { latitude: 27.7062, longitude: 85.3300, priority: 'normal' }       // Thamel
 ];
 
 export async function GET() {
