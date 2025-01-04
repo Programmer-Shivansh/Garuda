@@ -38,11 +38,10 @@ async def classify_image(
     
     # Create the prompt for classification
     prompt = """Please analyze this medical image and classify the condition into one of these categories:
-    1. Normal - No visible issues
-    2. Intermediate - Moderate concerns present
-    3. Severe - Serious condition detected
-    
-    Provide only the category name as response (Normal, Intermediate, or Severe)."""
+            1. Normal - No visible issues
+            2. Intermediate - Moderate concerns present
+            3. Severe - Serious condition detected
+            Provide only the category name as response (Normal, Intermediate, or Severe)."""
 
     # Make request to OpenAI
     response = client.chat.completions.create(
