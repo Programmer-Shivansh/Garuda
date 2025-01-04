@@ -5,8 +5,8 @@ import { useSearchParams } from 'next/navigation';
 import GalliMapLoader from '../components/GalliMapLoader';
 import GalliScript from '../components/GalliScript';
 import type { Coordinate } from '../types/coordinates';
-import { getPinColor, getCurrentLocationColor } from '../utils/markerIcons'; // Update imports
-import { calculatePath } from '../utils/pathCalculator';
+import { getPinColor, getCurrentLocationColor } from '../utils/markerIcons';
+import { calculatePath, calculateHaversineDistance } from '../utils/pathCalculator'; // Add import
 import { detectSevereClusters } from '../utils/clusterDetector';
 import type { GalliMapOptions, GalliMarkerOptions, GalliPolylineOptions, GalliCircleOptions } from '../types/map';
 
@@ -92,42 +92,37 @@ export default function MapPage() {
     markersRef.current.clear();
   };
 
+  // Update getRoutePath function to use new API
   const getRoutePath = async (start: [number, number], end: [number, number]): Promise<[number, number][]> => {
     try {
-      // Using Galli's routing API
-      const response = await fetch(
-        `https://routing.gallimap.com/route/v1/driving/` +
-        `${start[1]},${start[0]};${end[1]},${end[0]}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${ACCESS_TOKEN}`
-          }
-        }
-      );
+      const url = new URL('https://route-init.gallimap.com/api/v1/routing');
+      url.searchParams.append('mode', 'driving');
+      url.searchParams.append('srcLat', start[0].toString());
+      url.searchParams.append('srcLng', start[1].toString());
+      url.searchParams.append('dstLat', end[0].toString());
+      url.searchParams.append('dstLng', end[1].toString());
+      url.searchParams.append('accessToken', ACCESS_TOKEN);
 
+      const response = await fetch(url.toString());
+      
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
       
-      if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates) {
-        // Convert coordinates from [longitude, latitude] to [latitude, longitude]
-        return data.routes[0].geometry.coordinates.map(
-          (coord: [number, number]) => [coord[1], coord[0]]
-        );
+      if (data.success && data.data.success && data.data.data[0]) {
+        return data.data.data[0].latlngs;
       }
       
-      // If no valid route found, fall back to direct line
-      return [start, end];
+      throw new Error('Invalid route response');
     } catch (error) {
       console.error('Route calculation failed:', error);
-      // Fallback to direct line if API fails
       return [start, end];
     }
   };
 
-  // Update drawPath function to always start from current location
+  // Update drawPath to handle route segments
   const drawPath = useCallback(async (coords: Coordinate[]) => {
     const mapInstance = mapInstanceRef.current;
     if (!mapInstance || coords.length === 0) return;
@@ -137,31 +132,32 @@ export default function MapPage() {
         mapInstance.removePinMarker(pathRef.current);
       }
 
-      // Always start path from current location
       const [currentLat, currentLng] = currentLocationRef.current;
-      const startingPoint: Coordinate = {
-        latitude: currentLat,
-        longitude: currentLng,
-        priority: 'normal'
-      };
+      let allRoutePoints: [number, number][] = [[currentLng, currentLat]]; // Start with current location
 
-      // Include current location as first point
-      const orderedCoords = calculatePath([startingPoint, ...coords], currentLocationRef.current);
-      
-      // Convert to the format expected by drawPolygon
-      const pathCoords = orderedCoords.map(coord => [coord.longitude, coord.latitude]);
+      // Get route between each pair of points
+      for (let i = 0; i < coords.length; i++) {
+        const start = i === 0 ? 
+          [currentLat, currentLng] : 
+          [coords[i-1].latitude, coords[i-1].longitude];
+        const end = [coords[i].latitude, coords[i].longitude];
+
+        const routeSegment = await getRoutePath(start as [number, number], end as [number, number]);
+        // Add segment points (excluding first point if not first segment to avoid duplicates)
+        allRoutePoints = allRoutePoints.concat(routeSegment.slice(i === 0 ? 0 : 1));
+      }
 
       pathRef.current = mapInstance.drawPolygon({
         name: 'path',
         color: '#000000',
         opacity: 0.8,
         width: 4,
-        latLng: [currentLat, currentLng], // Start from current location
+        latLng: [currentLat, currentLng],
         geoJson: {
           type: "Feature",
           geometry: {
             type: "LineString",
-            coordinates: pathCoords
+            coordinates: allRoutePoints
           }
         }
       });
@@ -351,31 +347,43 @@ export default function MapPage() {
   // Add ref for current location marker
   const currentLocationMarkerRef = useRef<any>(null);
 
-  // Update watchPosition callback to immediately redraw path
+  // Update watchPositionCallback to handle location updates better
   const watchPositionCallback = useCallback((position: GeolocationPosition) => {
     const newLat = position.coords.latitude;
     const newLng = position.coords.longitude;
     
-    // Update current location ref
-    currentLocationRef.current = [newLat, newLng];
-    
-    // Update marker position
-    if (mapInstanceRef.current) {
-      // Remove existing current location marker if any
-      if (currentLocationMarkerRef.current) {
-        mapInstanceRef.current.removePinMarker(currentLocationMarkerRef.current);
-      }
-      
-      // Add new current location marker
-      currentLocationMarkerRef.current = mapInstanceRef.current.displayPinMarker({
-        color: getCurrentLocationColor(),
-        draggable: false,
-        latLng: [newLat, newLng]
-      });
+    // Only update if position has changed significantly (more than 1 meter)
+    const hasMovedSignificantly = !currentLocationRef.current || 
+      calculateHaversineDistance(
+        currentLocationRef.current, 
+        [newLat, newLng]
+      ) > 1;
 
-      // Immediately redraw path with new current location
-      if (coordinates.length > 0) {
-        drawPath(coordinates);
+    if (hasMovedSignificantly) {
+      // Update current location ref
+      currentLocationRef.current = [newLat, newLng];
+      
+      // Update marker position
+      if (mapInstanceRef.current) {
+        // Remove existing current location marker if any
+        if (currentLocationMarkerRef.current) {
+          mapInstanceRef.current.removePinMarker(currentLocationMarkerRef.current);
+        }
+        
+        // Add new current location marker
+        currentLocationMarkerRef.current = mapInstanceRef.current.displayPinMarker({
+          color: getCurrentLocationColor(),
+          draggable: false,
+          latLng: [newLat, newLng]
+        });
+
+        // Center map on new location
+        mapInstanceRef.current.map.setCenter([newLat, newLng]);
+
+        // Recalculate path if we have coordinates
+        if (coordinates.length > 0) {
+          drawPath(coordinates);
+        }
       }
     }
   }, [coordinates, drawPath]);
