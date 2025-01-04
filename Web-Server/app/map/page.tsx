@@ -7,8 +7,14 @@ import GalliScript from '../components/GalliScript';
 import type { Coordinate, PriorityLevel } from '../types/coordinates';
 import { getPinColor, getCurrentLocationColor } from '../utils/markerIcons';
 import { calculatePath, calculateHaversineDistance } from '../utils/pathCalculator'; // Add import
-import { detectSevereClusters } from '../utils/clusterDetector';
 import type { GalliMapOptions, GalliMarkerOptions, GalliPolylineOptions, GalliCircleOptions } from '../types/map';
+import dynamic from 'next/dynamic';
+
+// Update StatsSidebar import to use simpler version
+const StatsSidebar = dynamic(() => import('../components/StatsSidebar'), {
+  loading: () => <div>Loading stats...</div>,
+  ssr: false
+});
 
 const ACCESS_TOKEN = process.env.NEXT_PUBLIC_GALLI_ACCESS_TOKEN || '';
 
@@ -203,30 +209,6 @@ function MapContent() {
     }
   }, []);
 
-  const notifyCluster = async (cluster: any) => {
-    try {
-      const response = await fetch('YOUR_ALERT_API_ENDPOINT', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          center: cluster.center,
-          count: cluster.count,
-          timestamp: new Date().toISOString()
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to notify about cluster');
-      }
-      
-      console.log('Cluster notification sent:', cluster);
-    } catch (error) {
-      console.error('Failed to send cluster notification:', error);
-    }
-  };
-
   // Update addMarkersToMap with type guard
   const addMarkersToMap = useCallback((coords: Coordinate[]) => {
     const mapInstance = mapInstanceRef.current;
@@ -235,31 +217,6 @@ function MapContent() {
     try {
       clearExistingMarkers();
       
-      // Detect severe clusters
-      const clusters = detectSevereClusters(coords);
-      
-      // Handle clusters
-      clusters.forEach(cluster => {
-        console.log('Severe cluster detected:', cluster);
-        notifyCluster(cluster);
-        
-        // Add cluster visualization
-        mapInstance.drawPolygon({
-          name: `cluster-${cluster.count}`,
-          color: 'red',
-          opacity: 0.3,
-          width: 2,
-          latLng: [cluster.center.latitude, cluster.center.longitude],
-          geoJson: {
-            type: "Feature",
-            geometry: {
-              type: "LineString",
-              coordinates: [[cluster.center.longitude, cluster.center.latitude]]
-            }
-          }
-        });
-      });
-
       // Add markers
       coords.forEach((coord) => {
         try {
@@ -561,6 +518,8 @@ function MapContent() {
         apiKey={ACCESS_TOKEN} 
         onLoad={initialize}
       />
+      
+      <StatsSidebar coordinates={coordinates} />
       
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-white z-50">
