@@ -3,40 +3,33 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="altermarkive.guardian">
 
-    <!-- Using network location provider -->
+    <!-- Location Permissions -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- Using GPS location provider -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <!-- Using the monitoring of the Internet connectivity -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <!-- Network & WiFi Permissions -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Using calling a phone -->
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <!-- Using WiFi state toggling -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <!-- Using WebView and access to the internet-->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Using speaker volume control -->
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <!-- Using address book -->
-    <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <!-- Using phone call monitoring -->
+
+    <!-- Phone & SMS Permissions -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <!-- Using caller notification and identification -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
-    <!-- Using phone call answer -->
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
-    <!-- Using bootstrap notification -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Using SMS receiving -->
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
-    <!-- Using SMS sending -->
     <uses-permission android:name="android.permission.SEND_SMS" />
-    <!-- Using foreground service -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- System Permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- Using the body sensors -->
-    <uses-permission android:name="android.permission.BODY_SENSORS" />
-    <!-- Using the forced wake state -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="false"

