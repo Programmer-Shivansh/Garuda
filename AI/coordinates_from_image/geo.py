@@ -1,10 +1,12 @@
 import math
 import cv2
 import torch
+import requests
 from transformers import DetrImageProcessor, DetrForObjectDetection
 from PIL import Image  
 
 def pixel_to_gps(drone_lat, drone_lon, altitude, fov_h, fov_v, img_size, pixel_coords):
+    print(drone_lat,drone_lon,altitude,fov_h,fov_v,img_size,pixel_coords)
     earth_radius = 6378137  
     img_width, img_height = img_size
     obj_x, obj_y = pixel_coords
@@ -48,12 +50,13 @@ def process_image(image_path):
     target_sizes = torch.tensor([pil_image.size[::-1]])
     results = processor.post_process_object_detection(outputs, target_sizes=target_sizes, threshold=0.5)[0]
 
+    coordinates_list = []
     human_count = 0
     data = {"people": []}  
 
     # Hardcoded values as in original code
-    DRONE_LAT = 37.7749
-    DRONE_LON = -122.4194
+    DRONE_LAT = 27.7172
+    DRONE_LON = 85.3240
     ALTITUDE = 10
     FOV_H = 90
     FOV_V = 60
@@ -67,6 +70,12 @@ def process_image(image_path):
             gps_cords = pixel_to_gps(DRONE_LAT, DRONE_LON, ALTITUDE, FOV_H, FOV_V, (w, h), (mid_x, mid_y))
             
             human_count += 1
+            coordinates_list.append({
+                "latitude": gps_cords[0],
+                "longitude": gps_cords[1],
+                "priority": "unknown"
+            })
+            
             data["people"].append({
                 "person_id": human_count,
                 "gps_coordinates": {
@@ -75,15 +84,17 @@ def process_image(image_path):
                 }
             })
 
+    # Post coordinates to the API
+    try:
+        print("posting coordinates to API")
+        response = requests.post(
+            'https://garuda-phi.vercel.app//api/coordinates',
+            json={"coordinates": coordinates_list},
+            headers={'Content-Type': 'application/json'}
+        )
+        response.raise_for_status()
+        print("Coordinates successfully posted to API")
+    except requests.exceptions.RequestException as e:
+        print(f"Error posting coordinates to API: {e}")
+
     return data
-
-import json
-
-data = process_image("test/1.jpg")
-
-# Save the data to a JSON file
-output_file = "detected_people_coordinates.json"
-with open(output_file, "w") as f:
-    json.dump(data, f, indent=4)
-
-print(f"GPS coordinates of detected people have been saved to {output_file}")
