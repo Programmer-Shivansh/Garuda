@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import { GeistSans } from 'geist/font/sans'
-import { GeistMono } from 'geist/font/mono'
 import Script from 'next/script';
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Admin Map Dashboard",
-  description: "Admin login and mapping application",
+  title: "garuda",
+  description: "Admin login portal",
 };
 
 export default function RootLayout({
@@ -23,7 +22,7 @@ export default function RootLayout({
           id="galli-maps"
         />
       </head>
-      <body>
+      <body className="bg-black">
         {children}
       </body>
     </html>

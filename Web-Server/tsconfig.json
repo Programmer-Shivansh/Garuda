@@ -30,6 +30,6 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     "app/types/global.d.ts"
-, "next.config.mjs"  ],
+, "next.config.ts"  ],
   "exclude": ["node_modules"]
 }
