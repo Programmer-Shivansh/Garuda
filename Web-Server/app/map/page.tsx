@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import GalliMapLoader from '../components/GalliMapLoader';
 import GalliScript from '../components/GalliScript';
-import type { Coordinate } from '../types/coordinates';
+import type { Coordinate, PriorityLevel } from '../types/coordinates';
 import { getPinColor, getCurrentLocationColor } from '../utils/markerIcons';
 import { calculatePath, calculateHaversineDistance } from '../utils/pathCalculator'; // Add import
 import { detectSevereClusters } from '../utils/clusterDetector';
@@ -122,7 +122,7 @@ export default function MapPage() {
     }
   };
 
-  // Update drawPath to handle route segments
+  // Update drawPath with proper priority typing
   const drawPath = useCallback(async (coords: Coordinate[]) => {
     const mapInstance = mapInstanceRef.current;
     if (!mapInstance || coords.length === 0) return;
@@ -133,19 +133,55 @@ export default function MapPage() {
       }
 
       const [currentLat, currentLng] = currentLocationRef.current;
-      let allRoutePoints: [number, number][] = [[currentLng, currentLat]]; // Start with current location
+      
+      // Define priorities with unknown case
+      const priorities: Record<PriorityLevel, number> = {
+        severe: 0,
+        intermediate: 1,
+        normal: 2,
+        unknown: 3
+      };
 
-      // Get route between each pair of points
-      for (let i = 0; i < coords.length; i++) {
-        const start = i === 0 ? 
-          [currentLat, currentLng] : 
-          [coords[i-1].latitude, coords[i-1].longitude];
-        const end = [coords[i].latitude, coords[i].longitude];
+      // Sort coordinates by priority and distance
+      const sortedCoords = [...coords].sort((a, b) => {
+        const distA = calculateHaversineDistance(
+          [currentLat, currentLng],
+          [a.latitude, a.longitude]
+        );
+        const distB = calculateHaversineDistance(
+          [currentLat, currentLng],
+          [b.latitude, b.longitude]
+        );
+        
+        // First sort by priority using the priorities record
+        if (a.priority !== b.priority) {
+          return priorities[a.priority] - priorities[b.priority];
+        }
+        // Then by distance
+        return distA - distB;
+      });
 
-        const routeSegment = await getRoutePath(start as [number, number], end as [number, number]);
-        // Add segment points (excluding first point if not first segment to avoid duplicates)
-        allRoutePoints = allRoutePoints.concat(routeSegment.slice(i === 0 ? 0 : 1));
+      let allRoutePoints: [number, number][] = [];
+      let lastPoint: [number, number] = [currentLat, currentLng];
+
+      // Start with current location
+      allRoutePoints.push([currentLng, currentLat]);
+
+      // Get route for each point
+      for (const coord of sortedCoords) {
+        const route = await getRoutePath(
+          lastPoint,
+          [coord.latitude, coord.longitude]
+        );
+        
+        // Add route points (excluding first point to avoid duplicates)
+        if (route.length > 0) {
+          allRoutePoints = allRoutePoints.concat(route.slice(1));
+          lastPoint = [coord.latitude, coord.longitude];
+        }
       }
+
+      console.log('Route Points:', allRoutePoints); // Debug route points
 
       pathRef.current = mapInstance.drawPolygon({
         name: 'path',
@@ -347,43 +383,32 @@ export default function MapPage() {
   // Add ref for current location marker
   const currentLocationMarkerRef = useRef<any>(null);
 
-  // Update watchPositionCallback to handle location updates better
+  // Update watchPositionCallback to force path recalculation
   const watchPositionCallback = useCallback((position: GeolocationPosition) => {
     const newLat = position.coords.latitude;
     const newLng = position.coords.longitude;
     
-    // Only update if position has changed significantly (more than 1 meter)
-    const hasMovedSignificantly = !currentLocationRef.current || 
-      calculateHaversineDistance(
-        currentLocationRef.current, 
-        [newLat, newLng]
-      ) > 1;
-
-    if (hasMovedSignificantly) {
-      // Update current location ref
-      currentLocationRef.current = [newLat, newLng];
+    // Always update current location
+    currentLocationRef.current = [newLat, newLng];
+    console.log('Location Updated:', { newLat, newLng }); // Debug location updates
+    
+    // Update marker position
+    if (mapInstanceRef.current) {
+      // Remove existing current location marker if any
+      if (currentLocationMarkerRef.current) {
+        mapInstanceRef.current.removePinMarker(currentLocationMarkerRef.current);
+      }
       
-      // Update marker position
-      if (mapInstanceRef.current) {
-        // Remove existing current location marker if any
-        if (currentLocationMarkerRef.current) {
-          mapInstanceRef.current.removePinMarker(currentLocationMarkerRef.current);
-        }
-        
-        // Add new current location marker
-        currentLocationMarkerRef.current = mapInstanceRef.current.displayPinMarker({
-          color: getCurrentLocationColor(),
-          draggable: false,
-          latLng: [newLat, newLng]
-        });
+      // Add new current location marker
+      currentLocationMarkerRef.current = mapInstanceRef.current.displayPinMarker({
+        color: getCurrentLocationColor(),
+        draggable: false,
+        latLng: [newLat, newLng]
+      });
 
-        // Center map on new location
-        mapInstanceRef.current.map.setCenter([newLat, newLng]);
-
-        // Recalculate path if we have coordinates
-        if (coordinates.length > 0) {
-          drawPath(coordinates);
-        }
+      // Recalculate path whenever location changes
+      if (coordinates.length > 0) {
+        drawPath(coordinates);
       }
     }
   }, [coordinates, drawPath]);
