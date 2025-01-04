@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, Suspense } from 'react'; // Add Suspense
 import { useSearchParams } from 'next/navigation';
 import GalliMapLoader from '../components/GalliMapLoader';
 import GalliScript from '../components/GalliScript';
@@ -53,7 +53,8 @@ const waitForGalli = () => {
   });
 };
 
-export default function MapPage() {
+// Create a separate component that uses useSearchParams
+function MapContent() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<MapInstance | null>(null);
   const searchParams = useSearchParams();
@@ -552,7 +553,7 @@ export default function MapPage() {
     };
   }, [initialize, clearExistingMarkers]);
 
-  // Update return JSX
+  // Your existing component logic here
   return (
     <div className="relative w-full h-screen">
       <GalliScript />
@@ -584,5 +585,18 @@ export default function MapPage() {
         className="w-full h-[30vh]"
       />
     </div>
+  );
+}
+
+// Create the main page component with Suspense
+export default function MapPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center w-full h-screen">
+        <div className="text-lg">Loading...</div>
+      </div>
+    }>
+      <MapContent />
+    </Suspense>
   );
 }
