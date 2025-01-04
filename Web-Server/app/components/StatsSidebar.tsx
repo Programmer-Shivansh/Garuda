@@ -54,6 +54,16 @@ const StatsSidebar: React.FC<StatsSidebarProps> = ({ coordinates }) => {
               </span>
             </div>
           </div>
+
+          <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200">
+            <h3 className="text-gray-800 font-semibold mb-2">Unknown Status</h3>
+            <div className="flex justify-between items-center">
+              <span className="text-3xl font-bold text-gray-900">{stats.unknown || 0}</span>
+              <span className="px-3 py-1 bg-gray-200/50 text-gray-800 rounded-full text-sm">
+                Unknown
+              </span>
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border border-blue-200">
