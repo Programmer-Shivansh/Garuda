@@ -8,6 +8,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import androidx.core.app.ActivityCompat
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -52,14 +53,19 @@ class LocationHelper(private val context: Context) {
         }
     }
 
-    fun sendLocationToServer(apiUrl: String,location:Location?) {
+    fun sendLocationToServer(apiUrl: String, location: Location?) {
         if (location != null) {
-            val latitude = location.latitude
-            val longitude = location.longitude
-            val jsonPayload = JSONObject().apply {
-                put("latitude", latitude)
-                put("longitude", longitude)
+            val coordinate = JSONObject().apply {
+                put("latitude", location.latitude)
+                put("longitude", location.longitude)
+                put("priority", "unknown")
             }
+            val jsonPayload = JSONObject().apply {
+                put("coordinates", JSONArray().apply {
+                    put(coordinate)
+                })
+            }
+            
             Thread {
                 try {
                     val url = URL(apiUrl)
