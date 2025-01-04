@@ -1,7 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
-import Script from 'next/script';
+import { useEffect, useRef } from 'react';
 
 interface GalliMapLoaderProps {
   apiKey: string;
@@ -9,26 +8,31 @@ interface GalliMapLoaderProps {
 }
 
 export default function GalliMapLoader({ apiKey, onLoad }: GalliMapLoaderProps) {
+  const initialized = useRef(false);
+
   useEffect(() => {
-    return () => {
-      // Cleanup if needed
-      if (window.Galli) {
-        window.Galli = undefined;
+    const initGalli = () => {
+      if (!window.Galli || initialized.current) return;
+      initialized.current = true;
+
+      try {
+        window.Galli.initialize(apiKey)
+          .then(() => onLoad?.())
+          .catch(console.error);
+      } catch (error) {
+        console.error('Failed to initialize Galli Maps:', error);
       }
     };
-  }, []);
 
-  return (
-    <Script
-      src={`https://api.gallimap.com/maps/v1/galli.js?key=${apiKey}`}
-      strategy="beforeInteractive"
-      onLoad={() => {
-        console.log('Galli Maps loaded');
-        onLoad?.();
-      }}
-      onError={(e) => {
-        console.error('Error loading Galli Maps:', e);
-      }}
-    />
-  );
+    // Try to init if Galli is already loaded
+    if (window.Galli) {
+      initGalli();
+    }
+
+    // Listen for Galli load event
+    window.addEventListener('galliLoaded', initGalli);
+    return () => window.removeEventListener('galliLoaded', initGalli);
+  }, [apiKey, onLoad]);
+
+  return null;
 }

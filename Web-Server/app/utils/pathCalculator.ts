@@ -1,35 +1,76 @@
 import type { Coordinate, PriorityLevel } from '../types/coordinates';
 
-const ACCESS_TOKEN = 'your_galli_access_token';
+// Types for API response
+interface GalliDistanceResponse {
+  success: boolean;
+  message: string;
+  data: {
+    success: boolean;
+    message: string;
+    data: Array<{
+      distance: number;
+      duration: number;
+    }>;
+  };
+}
 
-export const getDistance = async (p1: Coordinate, p2: Coordinate): Promise<number> => {
+const ACCESS_TOKEN = '06071418-cacd-4752-910e-338c51cf1bc9';
+
+const getDistance = async (
+  start: [number, number],
+  end: [number, number],
+  accessToken: string
+): Promise<number> => {
   try {
-    const response = await fetch(
-      `https://route-init.gallimap.com/api/v1/routing/distance?` +
-      `mode=driving&` +
-      `srcLat=${p1.latitude}&` +
-      `srcLng=${p1.longitude}&` +
-      `dstLat=${p2.latitude}&` +
-      `dstLng=${p2.longitude}&` +
-      `accessToken=${ACCESS_TOKEN}`
-    );
+    const [startLat, startLng] = start;
+    const [endLat, endLng] = end;
 
-    const data = await response.json();
-    if (data.success && data.data.success) {
+    const url = new URL('https://route-init.gallimap.com/api/v1/routing/distance');
+    url.searchParams.append('mode', 'driving');
+    url.searchParams.append('srcLat', startLat.toString());
+    url.searchParams.append('srcLng', startLng.toString());
+    url.searchParams.append('dstLat', endLat.toString());
+    url.searchParams.append('dstLng', endLng.toString());
+    url.searchParams.append('accessToken', accessToken);
+
+    const response = await fetch(url.toString());
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json() as GalliDistanceResponse;
+    
+    if (data.success && data.data.success && data.data.data[0]) {
       return data.data.data[0].distance;
     }
-    throw new Error('Failed to get distance');
+
+    throw new Error('Invalid response format');
   } catch (error) {
     console.error('Distance calculation failed:', error);
-    // Fallback to simple distance calculation if API fails
-    const R = 6371;
-    const dLat = (p2.latitude - p1.latitude) * Math.PI / 180;
-    const dLon = (p2.longitude - p1.longitude) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(p1.latitude * Math.PI / 180) * Math.cos(p2.latitude * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    // Fallback to simple distance calculation
+    return calculateHaversineDistance(start, end);
   }
+};
+
+// Haversine formula for fallback distance calculation
+const calculateHaversineDistance = (
+  [lat1, lon1]: [number, number], 
+  [lat2, lon2]: [number, number]
+): number => {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon1 - lon1) * Math.PI) / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) *
+    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // Distance in meters
 };
 
 const getRoutePath = async (start: [number, number], end: [number, number]): Promise<[number, number][]> => {
@@ -57,23 +98,29 @@ const getRoutePath = async (start: [number, number], end: [number, number]): Pro
 
 // Sort coordinates by priority and calculate path
 export const calculatePath = (coordinates: Coordinate[], currentLocation: [number, number]): Coordinate[] => {
+  // Always start with current location
+  const startPoint: Coordinate = {
+    latitude: currentLocation[0],
+    longitude: currentLocation[1],
+    priority: 'normal'
+  };
+
   // Group coordinates by priority
   const grouped = coordinates.reduce((acc, coord) => {
+    if (coord.latitude === startPoint.latitude && coord.longitude === startPoint.longitude) {
+      return acc; // Skip if it's the same as current location
+    }
     const priority = coord.priority;
     if (!acc[priority]) acc[priority] = [];
     acc[priority].push(coord);
     return acc;
   }, {} as Record<PriorityLevel, Coordinate[]>);
 
-  // For each priority group, find nearest neighbor path
-  const result: Coordinate[] = [];
-  const startPoint: Coordinate = {
-    latitude: currentLocation[0],
-    longitude: currentLocation[1],
-    priority: 'normal' as PriorityLevel // Type assertion for starting point
-  };
+  // Initialize result with current location
+  const result: Coordinate[] = [startPoint];
   let lastPoint = startPoint;
 
+  // Process each priority level
   (['severe', 'intermediate', 'normal'] as PriorityLevel[]).forEach(priority => {
     if (!grouped[priority]) return;
 
@@ -81,10 +128,16 @@ export const calculatePath = (coordinates: Coordinate[], currentLocation: [numbe
     while (remaining.length > 0) {
       // Find nearest point to last point
       const nearest = remaining.reduce((nearest, current) => {
-        const dNearest = getDistance(lastPoint, nearest);
-        const dCurrent = getDistance(lastPoint, current);
+        const dNearest = calculateHaversineDistance(
+          [lastPoint.latitude, lastPoint.longitude],
+          [nearest.latitude, nearest.longitude]
+        );
+        const dCurrent = calculateHaversineDistance(
+          [lastPoint.latitude, lastPoint.longitude],
+          [current.latitude, current.longitude]
+        );
         return dCurrent < dNearest ? current : nearest;
-      });
+      }, remaining[0]);
 
       result.push(nearest);
       lastPoint = nearest;
@@ -94,3 +147,5 @@ export const calculatePath = (coordinates: Coordinate[], currentLocation: [numbe
 
   return result;
 };
+
+export { getDistance, calculateHaversineDistance };
