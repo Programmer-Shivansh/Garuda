@@ -4,235 +4,133 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaPlayer
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
+import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.Locale
+import android.view.WindowManager
 
-class FallDetectedActivity : Activity() {
-    private lateinit var speechRecognizer: SpeechRecognizer
-    private lateinit var statusText: TextView
-    private val handler = Handler(Looper.getMainLooper())
-    private var isListening = false
-    private val PERMISSION_REQUEST_CODE = 123
+class FallDetectedActivity : AppCompatActivity() {
+    companion object {
+        const val REQUEST_CODE = 1001
+    }
 
-    private val requiredPermissions = arrayOf(
-        Manifest.permission.RECORD_AUDIO,
-        Manifest.permission.CALL_PHONE
-    )
+    private var warningSound: MediaPlayer? = null
+    private var countdownTimer: CountDownTimer? = null
+    private var isFinishing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_fall_detected)
-        window.statusBarColor = getColor(R.color.black)
-        window.navigationBarColor = getColor(R.color.black)
 
-        initializeViews()
-        checkPermissions()
+        // Make sure activity shows on top of lock screen
+        window.addFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+            WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+            WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+        )
+
+        initializeUI()
+        startWarningSound()
+        startCountdown()
     }
 
-    private fun initializeViews() {
-        val helpButton: Button = findViewById(R.id.help_button)
-        val errorButton: Button = findViewById(R.id.error_button)
-        statusText = findViewById(R.id.status_text)
+    private fun initializeUI() {
+        findViewById<TextView>(R.id.status_text).text = 
+            "Fall Detected!\nPress 'I'm Fine' within 7 seconds\nor emergency alert will be sent"
 
-        helpButton.setOnClickListener {
-            callEmergencyContact()
-            finish()
-        }
-
-        errorButton.setOnClickListener {
-            finish()
-        }
-    }
-
-    private fun checkPermissions() {
-        val missingPermissions = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (missingPermissions.isEmpty()) {
-            startFallDetectionProcess()
-        } else {
-            ActivityCompat.requestPermissions(
-                this,
-                missingPermissions.toTypedArray(),
-                PERMISSION_REQUEST_CODE
-            )
+        // Hide help button as we're only using the fine button
+        findViewById<Button>(R.id.help_button).visibility = View.GONE
+        
+        val fineButton = findViewById<Button>(R.id.error_button)
+        fineButton.text = "I'm Fine"
+        fineButton.setOnClickListener {
+            userIsFine()
         }
     }
 
-    private fun startFallDetectionProcess() {
-        if (SpeechRecognizer.isRecognitionAvailable(this)) {
-            startVoiceRecognition()
-            startEmergencyTimer()
-        } else {
-            Toast.makeText(this, "Voice recognition not available", Toast.LENGTH_SHORT).show()
-            startEmergencyTimer()
-        }
-    }
-
-    private fun startVoiceRecognition() {
-        if (!isListening) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-            speechRecognizer.setRecognitionListener(createRecognitionListener())
-
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            }
-
-            try {
-                speechRecognizer.startListening(intent)
-                isListening = true
-                updateStatus("Listening for voice response...")
-            } catch (e: Exception) {
-                handleError("Error starting voice recognition: ${e.message}")
-            }
-        }
-    }
-
-    private fun createRecognitionListener() = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {
-            updateStatus("Listening...")
-        }
-
-        override fun onBeginningOfSpeech() {
-            updateStatus("Speech detected...")
-        }
-
-        override fun onRmsChanged(rmsdB: Float) {}
-        override fun onBufferReceived(buffer: ByteArray?) {}
-
-        override fun onEndOfSpeech() {
-            isListening = false
-            restartVoiceRecognition()
-        }
-
-        override fun onError(error: Int) {
-            isListening = false
-            val errorMessage = when (error) {
-                SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
-                SpeechRecognizer.ERROR_CLIENT -> "Client side error"
-                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
-                SpeechRecognizer.ERROR_NETWORK -> "Network error"
-                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
-                SpeechRecognizer.ERROR_NO_MATCH -> "No speech input"
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognition service busy"
-                SpeechRecognizer.ERROR_SERVER -> "Server error"
-                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
-                else -> "Unknown error"
-            }
-            handleError(errorMessage)
-            restartVoiceRecognition()
-        }
-
-        override fun onResults(results: Bundle?) {
-            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            if (!matches.isNullOrEmpty()) {
-                val spokenText = matches[0].lowercase()
-                when {
-                    spokenText.contains("fine") || 
-                    spokenText.contains("okay") || 
-                    spokenText.contains("ok") || 
-                    spokenText.contains("alright") || 
-                    spokenText.contains("i am fine") || 
-                    spokenText.contains("i'm fine") || 
-                    spokenText.contains("i am okay") -> {
-                        updateStatus("Voice response received: '$spokenText'. Canceling emergency...")
-                        handler.removeCallbacksAndMessages(null) // Remove emergency timer
-                        handler.postDelayed({ finish() }, 1500)
-                    }
-                    spokenText.contains("help") || 
-                    spokenText.contains("emergency") || 
-                    spokenText.contains("need help") -> {
-                        updateStatus("Voice command received: '$spokenText'. Calling emergency contact...")
-                        callEmergencyContact()
-                    }
-                    else -> {
-                        updateStatus("Didn't catch that. Please try again or use the buttons.")
-                        restartVoiceRecognition()
-                    }
-                }
-            }
-        }
-
-        override fun onPartialResults(partialResults: Bundle?) {}
-        override fun onEvent(eventType: Int, params: Bundle?) {}
-    }
-
-    private fun restartVoiceRecognition() {
-        if (!isFinishing) {
-            handler.postDelayed({ startVoiceRecognition() }, 1000)
-        }
-    }
-
-    private fun startEmergencyTimer() {
-        handler.postDelayed({
-            if (!isFinishing) {
-                updateStatus("No response received. Initiating emergency contact...")
-                callEmergencyContact()
-                handler.postDelayed({ finish() }, 1500)
-            }
-        }, 7000) // Changed to 7 seconds
-    }
-
-    private fun callEmergencyContact() {
+    private fun startWarningSound() {
         try {
-            val contact = UserDetails[this]
-            if (contact != null) {
-                SendDm.sms(this, contact, "Fall detected! Location: ${LocationHelper(this).getLocationString()}")
-                // Add call functionality here if needed
-            } else {
-                handleError("No emergency contact configured")
+            warningSound = MediaPlayer.create(this, R.raw.alarm).apply {
+                isLooping = true
+                start()
             }
         } catch (e: Exception) {
-            handleError("Error contacting emergency number: ${e.message}")
+            Log.e("FallDetected", "Error playing sound: ${e.message}")
         }
     }
 
-    private fun updateStatus(message: String) {
-        runOnUiThread {
-            statusText.text = message
-            statusText.setTextColor(getColor(R.color.white))
-        }
-    }
-
-    private fun handleError(error: String) {
-        updateStatus("Error: $error")
-        Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                startFallDetectionProcess()
-            } else {
-                handleError("Required permissions not granted")
-                handler.postDelayed({ finish() }, 2000)
+    private fun startCountdown() {
+        countdownTimer = object : CountDownTimer(7000, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                try {
+                    if (!isFinishing) {
+                        findViewById<Button>(R.id.error_button)?.text = 
+                            "I'm Fine (${millisUntilFinished/1000}s)"
+                    }
+                } catch (e: Exception) {
+                    Log.e("FallDetected", "Error updating countdown: ${e.message}")
+                }
             }
+
+            override fun onFinish() {
+                if (!isFinishing) {
+                    userNeedsHelp()
+                }
+            }
+        }.start()
+    }
+
+    private fun userIsFine() {
+        isFinishing = true
+        cleanup()
+        setResult(Activity.RESULT_CANCELED)
+        Toast.makeText(this, "Stay safe!", Toast.LENGTH_SHORT).show()
+        finish()
+    }
+
+    private fun userNeedsHelp() {
+        isFinishing = true
+        cleanup()
+        setResult(Activity.RESULT_OK)
+        finish()
+    }
+
+    private fun cleanup() {
+        try {
+            countdownTimer?.cancel()
+            countdownTimer = null
+
+            warningSound?.apply {
+                if (isPlaying) stop()
+                release()
+            }
+            warningSound = null
+        } catch (e: Exception) {
+            Log.e("FallDetected", "Error in cleanup: ${e.message}")
         }
     }
 
     override fun onDestroy() {
+        cleanup()
         super.onDestroy()
-        if (::speechRecognizer.isInitialized) {
-            speechRecognizer.destroy()
-        }
-        handler.removeCallbacksAndMessages(null)
+    }
+
+    override fun onBackPressed() {
+        // Prevent back button from closing without making a choice
     }
 }

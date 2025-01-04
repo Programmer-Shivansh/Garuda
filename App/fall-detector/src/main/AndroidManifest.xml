@@ -58,10 +58,25 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
-        <activity android:name=".FallDetectedActivity" />
+        <activity 
+            android:name=".FallDetectedActivity"
+            android:theme="@style/Theme.FallDetector.Emergency"
+            android:screenOrientation="portrait"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:showWhenLocked="true"
+            android:noHistory="true"
+            tools:ignore="LockedOrientationActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <receiver
-            android:name="altermarkive.guardian.Reset"
+            android:name="altermarkive.guardian.Reset"  
             android:enabled="true"
             android:exported="true"
             android:label="Boot Receiver"

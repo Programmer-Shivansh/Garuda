@@ -130,9 +130,6 @@ class Tracker private constructor() : SensorEventListener {
     private var anteZ: Double = Double.NaN
     private var anteTime: Long = 0
     private var regular: Long = 0
-    private var fallConfirmationDialog: AlertDialog? = null
-    private var fallConfirmationTimer: CountDownTimer? = null
-    private var warningSound: MediaPlayer? = null
 
     private fun linear(before: Long, ante: Double, after: Long, post: Double, now: Long): Double {
         return ante + (post - ante) * (now - before).toDouble() / (after - before).toDouble()
@@ -260,110 +257,32 @@ class Tracker private constructor() : SensorEventListener {
 
     private fun showFallDetectedPrompt(context: Context) {
         try {
-            // Get activity context properly
-            val activity = getActivity(context)
-            if (activity == null) {
-                Log.e(TAG, "No activity context found, proceeding with direct alert")
-                sendAlert(context)
-                return
+            val intent = Intent(context, FallDetectedActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
-
-            activity.runOnUiThread {
-                try {
-                    // Cleanup any existing dialog/sound first
-                    cleanupExistingDialog()
-
-                    // Start warning sound
-                    warningSound = MediaPlayer.create(activity, R.raw.alarm).apply {
-                        isLooping = true
-                        start()
-                    }
-
-                    // Create and show confirmation dialog
-                    val dialogView = LayoutInflater.from(activity).inflate(R.layout.fall_confirmation_dialog, null)
-                    val dialog = AlertDialog.Builder(activity)
-                        .setView(dialogView)
-                        .setCancelable(false)
-                        .create()
-
-                    // Initialize 30-second countdown
-                    fallConfirmationTimer = object : CountDownTimer(30000, 1000) {
-                        override fun onTick(millisUntilFinished: Long) {
-                            try {
-                                // Update countdown text if needed
-                                dialogView.findViewById<TextView>(R.id.tvCountdown)?.text = 
-                                    "Automatic alert in: ${millisUntilFinished/1000}s"
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error updating countdown: ${e.message}")
-                            }
-                        }
-
-                        override fun onFinish() {
-                            try {
-                                cleanupExistingDialog()
-                                // Auto-send alert if no response
-                                sendAlert(context)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error in timer finish: ${e.message}")
-                            }
-                        }
-                    }.start()
-
-                    // Setup button actions
-                    dialogView.findViewById<Button>(R.id.btnFine)?.setOnClickListener {
-                        cleanupExistingDialog()
-                        dialog.dismiss()
-                        Toast.makeText(activity, "Stay safe!", Toast.LENGTH_SHORT).show()
-                    }
-
-                    dialogView.findViewById<Button>(R.id.btnHelp)?.setOnClickListener {
-                        cleanupExistingDialog()
-                        dialog.dismiss()
-                        sendAlert(context)
-                    }
-
-                    // Save dialog reference and show it
-                    fallConfirmationDialog = dialog
-                    dialog.show()
-
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error showing dialog: ${e.message}")
-                    cleanupExistingDialog()
-                    sendAlert(context)
-                }
-            }
+            context.startActivity(intent)
         } catch (e: Exception) {
-            Log.e(TAG, "Error in showFallDetectedPrompt: ${e.message}")
+            Log.e(TAG, "Error showing fall detection screen: ${e.message}")
             sendAlert(context)
         }
     }
 
-    private fun cleanupExistingDialog() {
-        try {
-            // Cancel timer if running
-            fallConfirmationTimer?.cancel()
-            fallConfirmationTimer = null
-
-            // Stop and release sound
-            warningSound?.apply {
-                if (isPlaying) {
-                    stop()
+    // Add method to handle activity result
+    fun onActivityResult(requestCode: Int, resultCode: Int) {
+        when (requestCode) {
+            FallDetectedActivity.REQUEST_CODE -> {
+                if (resultCode == Activity.RESULT_OK) {
+                    // User didn't respond in time or needs help
+                    context?.let { sendAlert(it) }
                 }
-                release()
+                // If RESULT_CANCELED, do nothing as user indicated they're fine
             }
-            warningSound = null
-
-            // Dismiss dialog if showing
-            fallConfirmationDialog?.apply {
-                if (isShowing) {
-                    dismiss()
-                }
-            }
-            fallConfirmationDialog = null
-        } catch (e: Exception) {
-            Log.e(TAG, "Error cleaning up: ${e.message}")
         }
     }
+
+    // Remove old dialog-related code and variables since we're using Activity now
 
     private fun getActivity(context: Context): Activity? {
         var ctx = context

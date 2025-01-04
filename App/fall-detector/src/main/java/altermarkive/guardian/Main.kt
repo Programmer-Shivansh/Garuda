@@ -5,6 +5,7 @@ import android.Manifest
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -81,6 +82,13 @@ class Main : AppCompatActivity() {
         binding.bottomNav.setupWithNavController(navController)  // Assuming bottomNav is the ID in main.xml
 
         eula(this)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        
+        // Pass result to Tracker
+        Tracker.singleton.onActivityResult(requestCode, resultCode)
     }
 
     private fun checkAndRequestPermissions() {
