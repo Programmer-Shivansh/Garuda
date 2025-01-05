@@ -1,17 +1,17 @@
-# Garuda ![(LOGO)](IMAGES/image.png)
+# Garuda ![(LOGO)](images/image.png)
 
 Garuda is an integrated emergency response system designed to provide efficient and streamlined disaster management through a connected web platform. The system comprises four interconnected sections, each working together to ensure real-time monitoring, mapping, drone deployment, and AI-driven injury detection.  
 
 ---------
 
-![GCS](IMAGES/image-1.png)
+![GCS](images/image-1.png)
 
 ---------
 
 ## 1. Event Detection App  
 
 The **Event Detection App** is the initial step in Garuda’s emergency response workflow. It provides rapid detection and alert mechanisms.  
-![alt text](IMAGES/image-2.png) ![alt text](IMAGES/image-3.png)
+![alt text](images/image-2.png) ![alt text](images/image-3.png)
 
 ### Features:  
 - **Fall Detection**:  
