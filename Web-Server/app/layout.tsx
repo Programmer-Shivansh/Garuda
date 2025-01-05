@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
-import { GeistSans } from 'geist/font/sans';
+import { Geist } from "next/font/google";
 import Script from 'next/script';
 import "./globals.css";
 
+const geist = Geist({
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
-  title: "garuda",
-  description: "Admin login portal",
+  title: "Admin Map Dashboard",
+  description: "Admin login and mapping application",
 };
 
 export default function RootLayout({
@@ -22,9 +26,7 @@ export default function RootLayout({
           id="galli-maps"
         />
       </head>
-      <body className={`${GeistSans.className} bg-black antialiased`}>
-        {children}
-      </body>
+      <body className={geist.className}>{children}</body>
     </html>
   );
 }

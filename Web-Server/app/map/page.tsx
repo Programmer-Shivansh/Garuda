@@ -1,20 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, Suspense } from 'react'; // Add Suspense
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import GalliMapLoader from '../components/GalliMapLoader';
 import GalliScript from '../components/GalliScript';
 import type { Coordinate, PriorityLevel } from '../types/coordinates';
 import { getPinColor, getCurrentLocationColor } from '../utils/markerIcons';
 import { calculatePath, calculateHaversineDistance } from '../utils/pathCalculator'; // Add import
+import { detectSevereClusters } from '../utils/clusterDetector';
 import type { GalliMapOptions, GalliMarkerOptions, GalliPolylineOptions, GalliCircleOptions } from '../types/map';
-import dynamic from 'next/dynamic';
-
-// Update StatsSidebar import to use simpler version
-const StatsSidebar = dynamic(() => import('../components/StatsSidebar'), {
-  loading: () => <div>Loading stats...</div>,
-  ssr: false
-});
+import StatsSidebar from '../components/StatsSidebar';
 
 const ACCESS_TOKEN = process.env.NEXT_PUBLIC_GALLI_ACCESS_TOKEN || '';
 
@@ -59,8 +54,7 @@ const waitForGalli = () => {
   });
 };
 
-// Create a separate component that uses useSearchParams
-function MapContent() {
+export default function MapPage() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<MapInstance | null>(null);
   const searchParams = useSearchParams();
@@ -71,6 +65,13 @@ function MapContent() {
   const pathRef = useRef<PolylineInstance | null>(null);
   const currentLocationRef = useRef<[number, number]>([0, 0]);
   const mounted = useRef(true);
+  const [stats, setStats] = useState({
+    severe: 3,
+    intermediate: 2,
+    normal: 3,
+    unknown: 0,
+    total: 8
+  });
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -209,6 +210,30 @@ function MapContent() {
     }
   }, []);
 
+  const notifyCluster = async (cluster: any) => {
+    try {
+      const response = await fetch('YOUR_ALERT_API_ENDPOINT', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          center: cluster.center,
+          count: cluster.count,
+          timestamp: new Date().toISOString()
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to notify about cluster');
+      }
+      
+      console.log('Cluster notification sent:', cluster);
+    } catch (error) {
+      console.error('Failed to send cluster notification:', error);
+    }
+  };
+
   // Update addMarkersToMap with type guard
   const addMarkersToMap = useCallback((coords: Coordinate[]) => {
     const mapInstance = mapInstanceRef.current;
@@ -217,6 +242,31 @@ function MapContent() {
     try {
       clearExistingMarkers();
       
+      // Detect severe clusters
+      const clusters = detectSevereClusters(coords);
+      
+      // Handle clusters
+      clusters.forEach(cluster => {
+        console.log('Severe cluster detected:', cluster);
+        notifyCluster(cluster);
+        
+        // Add cluster visualization
+        mapInstance.drawPolygon({
+          name: `cluster-${cluster.count}`,
+          color: 'red',
+          opacity: 0.3,
+          width: 2,
+          latLng: [cluster.center.latitude, cluster.center.longitude],
+          geoJson: {
+            type: "Feature",
+            geometry: {
+              type: "LineString",
+              coordinates: [[cluster.center.longitude, cluster.center.latitude]]
+            }
+          }
+        });
+      });
+
       // Add markers
       coords.forEach((coord) => {
         try {
@@ -510,52 +560,42 @@ function MapContent() {
     };
   }, [initialize, clearExistingMarkers]);
 
-  // Your existing component logic here
+  // Update return JSX
   return (
-    <div className="relative w-full h-screen">
-      <GalliScript />
-      <GalliMapLoader 
-        apiKey={ACCESS_TOKEN} 
-        onLoad={initialize}
-      />
-      
-      <StatsSidebar coordinates={coordinates} />
-      
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white z-50">
-          <div className="text-lg">Loading map...</div>
+    <div className="relative min-h-screen">
+      <StatsSidebar stats={stats} />
+      <div className="ml-64"> {/* Add margin to accommodate sidebar */}
+        <div className="relative w-full h-screen">
+          <GalliScript />
+          <GalliMapLoader 
+            apiKey={ACCESS_TOKEN} 
+            onLoad={initialize}
+          />
+          
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white z-50">
+              <div className="text-lg">Loading map...</div>
+            </div>
+          )}
+          
+          {error && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white z-50">
+              <div className="text-red-500">{error}</div>
+            </div>
+          )}
+          
+          <div 
+            ref={mapRef} 
+            id="map"
+            className="w-full h-[70vh]"
+            style={{ visibility: isLoading ? 'hidden' : 'visible' }}
+          />
+          <div 
+            id="pano" 
+            className="w-full h-[30vh]"
+          />
         </div>
-      )}
-      
-      {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-white z-50">
-          <div className="text-red-500">{error}</div>
-        </div>
-      )}
-      
-      <div 
-        ref={mapRef} 
-        id="map"
-        className="w-full h-[70vh]"
-        style={{ visibility: isLoading ? 'hidden' : 'visible' }}
-      />
-      <div 
-        id="pano" 
-        className="w-full h-[30vh]"
-      />
-    </div>
-  );
-}
-
-// Create the main page component with Suspense
-export default function MapPage() {
-  return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center w-full h-screen">
-        <div className="text-lg">Loading...</div>
       </div>
-    }>
-      <MapContent />
-    </Suspense>
+    </div>
   );
 }
