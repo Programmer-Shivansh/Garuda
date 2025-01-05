@@ -57,8 +57,8 @@ export default function Home() {
       </div>
 
       {/* Content Container */}
-      <div className="relative z-20 min-h-screen flex items-center justify-center">
-        <div className="login-container bg-white/10 backdrop-blur-md p-8 rounded-lg shadow-2xl w-96 border border-white/20">
+      <div className="relative z-20 min-h-screen flex items-center justify-center p-4">
+        <div className="login-container !bg-white/10 !backdrop-blur-md p-8 rounded-lg shadow-2xl w-full max-w-md border border-white/20">
           <h2 className="text-2xl font-bold mb-6 text-center text-white">
             Admin Login
           </h2>
@@ -67,8 +67,8 @@ export default function Home() {
             value={adminId}
             onChange={(e) => setAdminId(e.target.value)}
             placeholder="Enter Admin ID"
-            className="w-full mb-4 p-2 rounded bg-white/20 backdrop-blur-sm 
-                     border border-white/10 text-white placeholder-white/70
+            className="w-full mb-4 p-2 rounded !bg-white/20 !backdrop-blur-sm 
+                     border !border-white/10 !text-white placeholder:!text-white/70
                      focus:outline-none focus:ring-2 focus:ring-white/50"
             required
           />
