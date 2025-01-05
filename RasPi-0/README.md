@@ -1,1 +1,1 @@
-Video Feed from Drone to AI
+Video Feed from Drone to get thermal image
