@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { GeistSans } from 'geist/font/sans'
+import { GeistSans } from 'geist/font/sans';
 import Script from 'next/script';
 import "./globals.css";
 
@@ -14,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={GeistSans.className}>
+    <html lang="en">
       <head>
         <Script
           src="https://gallimap.com/static/dist/js/gallimaps.vector.min.latest.js"
@@ -22,9 +22,9 @@ export default function RootLayout({
           id="galli-maps"
         />
       </head>
-      <body className="bg-black">
+      <body className={`${GeistSans.className} bg-black antialiased`}>
         {children}
       </body>
     </html>
-  )
+  );
 }
