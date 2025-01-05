@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { prisma } from '@/app/lib/db';
 import type { Coordinate } from '@/app/types/coordinates';
 import { detectClusters } from '@/app/utils/clusterDetector';
 import { PriorityLevel } from '@/app/types/coordinates';
